@@ -55,3 +55,114 @@ export async function getProductCount(tenantId: number): Promise<number> {
     .where(eq(products.tenantId, tenantId));
   return row?.value ?? 0;
 }
+
+export async function getProductById(tenantId: number, productId: number): Promise<Product | null> {
+  const [product] = await db
+    .select()
+    .from(products)
+    .where(and(eq(products.id, productId), eq(products.tenantId, tenantId)))
+    .limit(1);
+  return product ?? null;
+}
+
+interface CreateProductData {
+  sku: string;
+  name: string;
+  price?: number;
+  stock: number;
+}
+
+/** better-sqlite3 reporta violaciones de constraint con este `code`. */
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'SQLITE_CONSTRAINT_UNIQUE'
+  );
+}
+
+export type CreateProductResult =
+  | { ok: true; product: Product }
+  | { ok: false; error: 'SKU_DUPLICATE' };
+
+export async function createProduct(
+  tenantId: number,
+  data: CreateProductData,
+): Promise<CreateProductResult> {
+  try {
+    const [product] = await db
+      .insert(products)
+      .values({
+        tenantId,
+        sku: data.sku,
+        name: data.name,
+        price: data.price,
+        stock: data.stock,
+      })
+      .returning();
+    return { ok: true, product };
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return { ok: false, error: 'SKU_DUPLICATE' };
+    }
+    throw error;
+  }
+}
+
+/** `true` si borró la fila; `false` si no existía o pertenecía a otro tenant. */
+export async function deleteProduct(tenantId: number, productId: number): Promise<boolean> {
+  const result = db
+    .delete(products)
+    .where(and(eq(products.id, productId), eq(products.tenantId, tenantId)))
+    .run();
+  return result.changes > 0;
+}
+
+export type StockUpdateError = 'NOT_FOUND' | 'STOCK_NEGATIVE' | 'STOCK_CONFLICT';
+
+export type UpdateProductStockResult =
+  | { ok: true; product: Product }
+  | { ok: false; error: StockUpdateError };
+
+/**
+ * Concurrencia optimista (compare-and-swap): lee el stock actual, rechaza
+ * localmente si el resultado quedaría negativo (nunca llega a la BD), y
+ * escribe con un WHERE que exige que `stock` siga valiendo lo que se leyó.
+ * Si `changes === 0`, otra transacción ya movió el stock entre la lectura y
+ * la escritura (STOCK_CONFLICT) — nunca se usa REPLACE/INSERT OR REPLACE,
+ * que borrarían la fila y romperían el filtro por tenant.
+ */
+export async function updateProductStock(
+  tenantId: number,
+  productId: number,
+  delta: number,
+): Promise<UpdateProductStockResult> {
+  const current = await getProductById(tenantId, productId);
+  if (!current) {
+    return { ok: false, error: 'NOT_FOUND' };
+  }
+
+  const newStock = current.stock + delta;
+  if (newStock < 0) {
+    return { ok: false, error: 'STOCK_NEGATIVE' };
+  }
+
+  const result = db
+    .update(products)
+    .set({ stock: newStock })
+    .where(
+      and(
+        eq(products.id, productId),
+        eq(products.tenantId, tenantId),
+        eq(products.stock, current.stock),
+      ),
+    )
+    .run();
+
+  if (result.changes === 0) {
+    return { ok: false, error: 'STOCK_CONFLICT' };
+  }
+
+  return { ok: true, product: { ...current, stock: newStock } };
+}
