@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSession } from '@/src/lib/auth';
 import { getTenantById, getUserById, getProductCount } from '@/src/lib/dal';
@@ -42,6 +43,13 @@ export default async function DashboardPage() {
 
         <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">Productos en inventario</p>
         <p className="text-3xl font-semibold text-zinc-900 dark:text-zinc-50">{productCount}</p>
+
+        <Link
+          href="/dashboard/inventory"
+          className="mt-4 inline-block text-sm font-medium text-zinc-900 hover:underline dark:text-zinc-50"
+        >
+          Ir al inventario →
+        </Link>
       </section>
     </main>
   );
