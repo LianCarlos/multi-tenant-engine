@@ -1,0 +1,1 @@
+El control de acceso se maneja mediante Postgres Row Level Security (RLS) en Supabase. El frontend no maneja lógica de seguridad, solo reacciona a los datos permitidos. Las políticas RLS deben asegurar que `auth.uid()` coincida con el propietario o que el usuario pertenezca al `organization_id` de la fila consultada.

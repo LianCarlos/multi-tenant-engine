@@ -1,0 +1,1 @@
+Stack: Next.js (App Router), Supabase (Auth, Postgres, Realtime). Patrón: Multi-tenant a nivel de base de datos. Regla inquebrantable: TODA mutación o consulta de datos a través de Server Actions o Route Handlers DEBE incluir validación del `tenant_id` obtenido exclusivamente de la sesión segura del servidor, JAMÁS confiando en parámetros enviados por el cliente.
