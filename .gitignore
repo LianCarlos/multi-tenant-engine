@@ -30,6 +30,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# local sqlite database (las migraciones en ./drizzle SÍ se versionan)
+sqlite.db
+sqlite.db-*
+
 # env files (can opt-in for committing if needed)
 .env*
 
