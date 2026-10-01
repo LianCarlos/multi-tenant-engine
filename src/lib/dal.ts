@@ -1,6 +1,20 @@
-import { count, eq, and } from 'drizzle-orm';
+import { count, eq, and, desc, gte, lte } from 'drizzle-orm';
 import { db } from '@/src/db/client';
-import { tenants, users, products, type Tenant, type User, type Product } from '@/src/db/schema';
+import {
+  tenants,
+  users,
+  products,
+  auditLogs,
+  type Tenant,
+  type User,
+  type Product,
+  type AuditLog,
+  type AuditAction,
+} from '@/src/db/schema';
+
+// El union AuditAction vive en el schema (fuente única junto a la tabla);
+// la DAL lo re-exporta como parte de su API de auditoría.
+export type { AuditAction } from '@/src/db/schema';
 
 /**
  * REGLA DE ARQUITECTURA (multi-tenant) — capa única de acceso a datos:
@@ -30,12 +44,13 @@ export async function getUserByEmail(email: string): Promise<User | null> {
  * mostrarlo en el dashboard). Filtra también por tenantId como defensa en
  * profundidad, aunque el id ya pertenece a un único tenant por FK.
  */
-export async function getUserById(id: number, tenantId: number): Promise<User | null> {
-  const [user] = await db
+export function getUserById(id: number, tenantId: number): User | null {
+  const [user] = db
     .select()
     .from(users)
     .where(and(eq(users.id, id), eq(users.tenantId, tenantId)))
-    .limit(1);
+    .limit(1)
+    .all();
   return user ?? null;
 }
 
@@ -56,12 +71,17 @@ export async function getProductCount(tenantId: number): Promise<number> {
   return row?.value ?? 0;
 }
 
-export async function getProductById(tenantId: number, productId: number): Promise<Product | null> {
-  const [product] = await db
+export function getProductById(
+  tenantId: number,
+  productId: number,
+  tx?: DbTransaction,
+): Product | null {
+  const [product] = (tx ?? db)
     .select()
     .from(products)
     .where(and(eq(products.id, productId), eq(products.tenantId, tenantId)))
-    .limit(1);
+    .limit(1)
+    .all();
   return product ?? null;
 }
 
@@ -86,12 +106,13 @@ export type CreateProductResult =
   | { ok: true; product: Product }
   | { ok: false; error: 'SKU_DUPLICATE' };
 
-export async function createProduct(
+export function createProduct(
   tenantId: number,
   data: CreateProductData,
-): Promise<CreateProductResult> {
+  tx?: DbTransaction,
+): CreateProductResult {
   try {
-    const [product] = await db
+    const [product] = (tx ?? db)
       .insert(products)
       .values({
         tenantId,
@@ -100,9 +121,12 @@ export async function createProduct(
         price: data.price,
         stock: data.stock,
       })
-      .returning();
+      .returning()
+      .all();
     return { ok: true, product };
   } catch (error) {
+    // Dentro de una transacción, devolver sin lanzar mantiene la transacción
+    // viva (no hay nada que revertir: el insert falló por completo).
     if (isUniqueConstraintError(error)) {
       return { ok: false, error: 'SKU_DUPLICATE' };
     }
@@ -111,8 +135,12 @@ export async function createProduct(
 }
 
 /** `true` si borró la fila; `false` si no existía o pertenecía a otro tenant. */
-export async function deleteProduct(tenantId: number, productId: number): Promise<boolean> {
-  const result = db
+export function deleteProduct(
+  tenantId: number,
+  productId: number,
+  tx?: DbTransaction,
+): boolean {
+  const result = (tx ?? db)
     .delete(products)
     .where(and(eq(products.id, productId), eq(products.tenantId, tenantId)))
     .run();
@@ -133,12 +161,13 @@ export type UpdateProductStockResult =
  * la escritura (STOCK_CONFLICT) — nunca se usa REPLACE/INSERT OR REPLACE,
  * que borrarían la fila y romperían el filtro por tenant.
  */
-export async function updateProductStock(
+export function updateProductStock(
   tenantId: number,
   productId: number,
   delta: number,
-): Promise<UpdateProductStockResult> {
-  const current = await getProductById(tenantId, productId);
+  tx?: DbTransaction,
+): UpdateProductStockResult {
+  const current = getProductById(tenantId, productId, tx);
   if (!current) {
     return { ok: false, error: 'NOT_FOUND' };
   }
@@ -148,7 +177,7 @@ export async function updateProductStock(
     return { ok: false, error: 'STOCK_NEGATIVE' };
   }
 
-  const result = db
+  const result = (tx ?? db)
     .update(products)
     .set({ stock: newStock })
     .where(
@@ -165,4 +194,99 @@ export async function updateProductStock(
   }
 
   return { ok: true, product: { ...current, stock: newStock } };
+}
+
+// === Auditoría (Sprint 04) ===
+
+/**
+ * Tipo del callback de `db.transaction` (better-sqlite3): permite a las
+ * Server Actions ejecutar mutación de negocio + auditoría atómicamente.
+ */
+export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export interface AuditLogFilters {
+  action?: AuditAction;
+  /** Filtro desde: epoch ms, inclusive. */
+  from?: number;
+  /** Filtro hasta: epoch ms, inclusive. */
+  to?: number;
+  /** Página 1-based; requiere `limit`. Si se omite, se devuelven todas las filas. */
+  page?: number;
+  limit?: number;
+}
+
+export type AuditLogWithUserEmail = AuditLog & { userEmail: string | null };
+
+/**
+ * Inserta una entrada de auditoría, opcionalmente dentro de una transacción
+ * ya abierta (`tx`). `details` SOLO debe contener datos no sensibles
+ * (nunca passwordHash, secrets ni tokens).
+ */
+export function createAuditLog(
+  {
+    tenantId,
+    userId,
+    action,
+    details,
+  }: {
+    tenantId: number;
+    userId: number | null;
+    action: AuditAction;
+    details?: Record<string, unknown>;
+  },
+  tx?: DbTransaction,
+): AuditLog {
+  const [log] = (tx ?? db)
+    .insert(auditLogs)
+    .values({ tenantId, userId, action, details: details ?? {} })
+    .returning()
+    .all();
+  return log;
+}
+
+/**
+ * Lista los registros de auditoría de UN tenant (aislamiento duro: siempre
+ * `eq(tenantId)`), con filtros opcionales de acción y rango de fechas
+ * (epoch ms), join al email del usuario (null si fue borrado) y paginación
+ * opcional. Sin `page`/`limit` devuelve TODAS las filas filtradas (export CSV).
+ */
+export async function getTenantAuditLogs(
+  tenantId: number,
+  filters?: AuditLogFilters,
+): Promise<{ logs: AuditLogWithUserEmail[]; total: number }> {
+  const conditions = and(
+    eq(auditLogs.tenantId, tenantId),
+    filters?.action !== undefined ? eq(auditLogs.action, filters.action) : undefined,
+    filters?.from !== undefined ? gte(auditLogs.createdAt, filters.from) : undefined,
+    filters?.to !== undefined ? lte(auditLogs.createdAt, filters.to) : undefined,
+  );
+
+  const [countRow] = await db
+    .select({ value: count() })
+    .from(auditLogs)
+    .where(conditions);
+  const total = countRow?.value ?? 0;
+
+  const baseQuery = db
+    .select({
+      id: auditLogs.id,
+      tenantId: auditLogs.tenantId,
+      userId: auditLogs.userId,
+      action: auditLogs.action,
+      details: auditLogs.details,
+      createdAt: auditLogs.createdAt,
+      userEmail: users.email,
+    })
+    .from(auditLogs)
+    .leftJoin(users, eq(auditLogs.userId, users.id))
+    .where(conditions)
+    .orderBy(desc(auditLogs.createdAt));
+
+  const { page, limit } = filters ?? {};
+  const logs =
+    page !== undefined && limit !== undefined
+      ? await baseQuery.limit(limit).offset((page - 1) * limit)
+      : await baseQuery;
+
+  return { logs, total };
 }

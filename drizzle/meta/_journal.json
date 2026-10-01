@@ -8,6 +8,13 @@
       "when": 1790669946999,
       "tag": "0000_initial_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1790865395385,
+      "tag": "0001_sticky_absorbing_man",
+      "breakpoints": true
     }
   ]
 }
