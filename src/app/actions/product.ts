@@ -2,10 +2,13 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { db } from '@/src/db/client';
 import { getSession } from '@/src/lib/auth';
 import {
+  createAuditLog,
   createProduct,
   deleteProduct,
+  getProductById,
   updateProductStock,
   type StockUpdateError,
 } from '@/src/lib/dal';
@@ -63,7 +66,27 @@ export async function createProductAction(
     };
   }
 
-  const result = await createProduct(session.tenantId, parsed.data);
+  const result = db.transaction((tx) => {
+    const txResult = createProduct(session.tenantId, parsed.data, tx);
+    if (txResult.ok) {
+      createAuditLog(
+        {
+          tenantId: session.tenantId,
+          userId: Number(session.sub),
+          action: 'product_created',
+          details: {
+            productId: txResult.product.id,
+            sku: txResult.product.sku,
+            stock: txResult.product.stock,
+            price: txResult.product.price,
+          },
+        },
+        tx,
+      );
+    }
+    return txResult;
+  });
+
   if (!result.ok) {
     return { status: 'error', message: 'Ese SKU ya existe en tu empresa' };
   }
@@ -94,11 +117,32 @@ export async function updateStockAction(
     };
   }
 
-  const result = await updateProductStock(
-    session.tenantId,
-    parsed.data.productId,
-    parsed.data.delta,
-  );
+  const result = db.transaction((tx) => {
+    const txResult = updateProductStock(
+      session.tenantId,
+      parsed.data.productId,
+      parsed.data.delta,
+      tx,
+    );
+    if (txResult.ok) {
+      createAuditLog(
+        {
+          tenantId: session.tenantId,
+          userId: Number(session.sub),
+          action: 'product_updated',
+          details: {
+            productId: txResult.product.id,
+            sku: txResult.product.sku,
+            stockAnterior: txResult.product.stock - parsed.data.delta,
+            stockNuevo: txResult.product.stock,
+            delta: parsed.data.delta,
+          },
+        },
+        tx,
+      );
+    }
+    return txResult;
+  });
 
   if (!result.ok) {
     return { status: 'error', message: STOCK_ERROR_MESSAGES[result.error] };
@@ -123,7 +167,26 @@ export async function deleteProductAction(productId: number): Promise<ProductAct
     return { status: 'error', message: 'Producto inválido' };
   }
 
-  const deleted = await deleteProduct(session.tenantId, parsed.data.productId);
+  // Lectura del SKU DENTRO de la transacción (con `tx`): evita una carrera
+  // entre la lectura previa y el DELETE, y garantiza que el detalle auditado
+  // es exactamente la fila que se va a borrar.
+  const deleted = db.transaction((tx) => {
+    const existing = getProductById(session.tenantId, parsed.data.productId, tx);
+    const txDeleted = deleteProduct(session.tenantId, parsed.data.productId, tx);
+    if (txDeleted && existing) {
+      createAuditLog(
+        {
+          tenantId: session.tenantId,
+          userId: Number(session.sub),
+          action: 'product_deleted',
+          details: { productId: existing.id, sku: existing.sku },
+        },
+        tx,
+      );
+    }
+    return txDeleted;
+  });
+
   if (!deleted) {
     return {
       status: 'error',
