@@ -9,6 +9,7 @@ import {
   updateProductStock,
   type StockUpdateError,
 } from '@/src/lib/dal';
+import { publishInventoryEvent } from '@/src/lib/events';
 import {
   productSchema,
   stockUpdateSchema,
@@ -67,7 +68,10 @@ export async function createProductAction(
     return { status: 'error', message: 'Ese SKU ya existe en tu empresa' };
   }
 
-  // TODO(sprint-03): publicar evento
+  publishInventoryEvent(session.tenantId, {
+    type: 'product_created',
+    payload: { productId: result.product.id },
+  });
   revalidateInventory();
   return { status: 'success' };
 }
@@ -100,7 +104,10 @@ export async function updateStockAction(
     return { status: 'error', message: STOCK_ERROR_MESSAGES[result.error] };
   }
 
-  // TODO(sprint-03): publicar evento
+  publishInventoryEvent(session.tenantId, {
+    type: 'product_updated',
+    payload: { productId: parsed.data.productId },
+  });
   revalidateInventory();
   return { status: 'success' };
 }
@@ -124,7 +131,10 @@ export async function deleteProductAction(productId: number): Promise<ProductAct
     };
   }
 
-  // TODO(sprint-03): publicar evento
+  publishInventoryEvent(session.tenantId, {
+    type: 'product_deleted',
+    payload: { productId: parsed.data.productId },
+  });
   revalidateInventory();
   return { status: 'success' };
 }
