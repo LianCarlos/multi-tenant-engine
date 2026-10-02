@@ -1,6 +1,6 @@
 # SPRINT 05 — Pulido de portafolio, diagrama de arquitectura y CI
 
-> **Depende de:** Sprints 01–04 · **Estado:** Pendiente
+> **Depende de:** Sprints 01–04 · **Estado:** Completado
 
 ## 1. Objetivo
 
