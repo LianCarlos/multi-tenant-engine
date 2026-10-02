@@ -7,7 +7,9 @@ on:
   # Todos los Pull Requests, desde cualquier rama.
   pull_request:
 
-concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
