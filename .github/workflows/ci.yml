@@ -43,14 +43,18 @@ jobs:
       - name: Lint (ESLint)
         run: npm run lint
 
-      # 6. Seed idempotente: valida integridad del esquema y del seed.
+      # 6. Aplicar migraciones versionadas (crea el esquema en el runner).
+      - name: Aplicar migraciones (drizzle-kit)
+        run: npx drizzle-kit migrate
+
+      # 7. Seed idempotente: valida integridad del esquema y del seed.
       - name: Seed de la base de datos
         run: npm run seed
 
-      # 7. Prueba de aislamiento entre tenants contra el DDL real.
+      # 8. Prueba de aislamiento entre tenants contra el DDL real.
       - name: Test de aislamiento entre tenants
         run: npm run test:isolation
 
-      # 8. Build de producción de Next.js.
+      # 9. Build de producción de Next.js.
       - name: Build de producción
         run: npm run build
