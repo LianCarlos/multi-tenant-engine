@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  # Push a las ramas protegidas.
+  push:
+    branches: [main, beta]
+  # Todos los Pull Requests, desde cualquier rama.
+  pull_request:
+
+concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    # Job único: si cualquier paso falla, el workflow (y el PR) queda en rojo.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # 1. Descargar el código del repositorio.
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      # 2. Node 22: better-sqlite3 v13 tiene prebuilds para esta versión.
+      - name: Configurar Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # 3. Instalación reproducible desde el lockfile versionado.
+      - name: Instalar dependencias (npm ci)
+        run: npm ci
+
+      # 4. Tipos TypeScript en modo estricto.
+      - name: Verificar tipos (tsc)
+        run: npx tsc --noEmit
+
+      # 5. Lint con ESLint (config de Next.js).
+      - name: Lint (ESLint)
+        run: npm run lint
+
+      # 6. Seed idempotente: valida integridad del esquema y del seed.
+      - name: Seed de la base de datos
+        run: npm run seed
+
+      # 7. Prueba de aislamiento entre tenants contra el DDL real.
+      - name: Test de aislamiento entre tenants
+        run: npm run test:isolation
+
+      # 8. Build de producción de Next.js.
+      - name: Build de producción
+        run: npm run build
