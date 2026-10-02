@@ -30,10 +30,10 @@ async function main() {
 
   console.log('[seed] Insertando usuarios...');
   const seedUsers = [
-    { tenant: alfa, email: 'owner@alfa.test', password: 'Alfa123!owner', role: 'owner' },
-    { tenant: alfa, email: 'member@alfa.test', password: 'Alfa123!member', role: 'member' },
-    { tenant: beta, email: 'owner@beta.test', password: 'Beta123!owner', role: 'owner' },
-    { tenant: beta, email: 'member@beta.test', password: 'Beta123!member', role: 'member' },
+    { tenant: alfa, email: 'owner@alfa.test', password: 'Alfa123!', role: 'owner' },
+    { tenant: alfa, email: 'member@alfa.test', password: 'Alfa123!', role: 'member' },
+    { tenant: beta, email: 'owner@beta.test', password: 'Beta123!', role: 'owner' },
+    { tenant: beta, email: 'member@beta.test', password: 'Beta123!', role: 'member' },
   ] as const;
 
   const credentials: SeedCredential[] = [];

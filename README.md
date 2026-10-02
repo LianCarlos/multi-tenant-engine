@@ -56,7 +56,14 @@ npm run seed   # creates 2 tenants + test users (idempotent)
 npm run dev    # http://localhost:3000
 ```
 
-The seed prints test credentials to the console (2 tenants, 2 users per tenant).
+The seed prints test credentials to the console. Test credentials:
+
+| Tenant | Role | Email | Password |
+|---|---|---|---|
+| Alfa | Owner | `owner@alfa.test` | `Alfa123!` |
+| Alfa | Member | `member@alfa.test` | `Alfa123!` |
+| Beta | Owner | `owner@beta.test` | `Beta123!` |
+| Beta | Member | `member@beta.test` | `Beta123!` |
 
 Validation:
 
@@ -125,7 +132,14 @@ npm run seed   # crea 2 tenants y usuarios de prueba (idempotente)
 npm run dev    # http://localhost:3000
 ```
 
-El seed imprime las credenciales de prueba en consola (2 tenants, 2 usuarios por tenant).
+El seed imprime las credenciales de prueba en consola. Credenciales de prueba:
+
+| Empresa | Rol | Email | Contraseña |
+|---|---|---|---|
+| Alfa | Owner | `owner@alfa.test` | `Alfa123!` |
+| Alfa | Member | `member@alfa.test` | `Alfa123!` |
+| Beta | Owner | `owner@beta.test` | `Beta123!` |
+| Beta | Member | `member@beta.test` | `Beta123!` |
 
 Validación:
 
