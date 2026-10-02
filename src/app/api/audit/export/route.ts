@@ -56,6 +56,16 @@ function endOfDayMs(value: string | null): number | undefined {
 }
 
 /**
+ * Mitigación de CSV/Formula Injection: si el valor empieza por `=`, `+`,
+ * `-`, `@`, tab (`\t`) o `\r`, Excel/LibreOffice podrían interpretar la
+ * celda como fórmula al abrir el archivo. Se antepone una comilla simple
+ * (`'`), lo que fuerza su tratamiento como texto literal.
+ */
+function sanitizeCsvCell(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+}
+
+/**
  * Escapa una celda CSV (RFC 4180): si contiene comillas, comas o saltos de
  * línea, se envuelve en comillas duplicando las comillas internas.
  */
@@ -64,6 +74,11 @@ function escapeCsvCell(value: string): string {
     return `"${value.replace(/"/g, '""')}"`;
   }
   return value;
+}
+
+/** Orden de mitigación: primero sanitización anti-fórmula, luego escape RFC 4180. */
+function formatCsvCell(value: string): string {
+  return escapeCsvCell(sanitizeCsvCell(value));
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -85,7 +100,7 @@ export async function GET(request: Request): Promise<Response> {
   const { logs } = await getTenantAuditLogs(session.tenantId, { action, from, to });
 
   const rows = [
-    ['Fecha', 'Usuario', 'Acción', 'Detalles'].map(escapeCsvCell).join(','),
+    ['Fecha', 'Usuario', 'Acción', 'Detalles'].map(formatCsvCell).join(','),
     ...logs.map((log) =>
       [
         new Date(log.createdAt).toISOString(),
@@ -93,7 +108,7 @@ export async function GET(request: Request): Promise<Response> {
         log.action,
         JSON.stringify(log.details),
       ]
-        .map(escapeCsvCell)
+        .map(formatCsvCell)
         .join(','),
     ),
   ];
